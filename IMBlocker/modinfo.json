@@ -2,7 +2,7 @@
     "$schema": "https://moddbcdn.vintagestory.at/schema/modinfo.latest.json",
     "type": "Code",
     "modid": "imblocker",
-    "name": "IMBlocker",
+    "name": "输入法屏蔽",
     "side": "Client",
     "authors": [
         "神麤詭末"
