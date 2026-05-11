@@ -42,7 +42,7 @@ public sealed class IMEStateManager : IDisposable {
 		while (!_cts.Token.IsCancellationRequested) {
 			Handler.SyncState();
 			try {
-				await Task.Delay(2000, _cts.Token);
+				await Task.Delay(200, _cts.Token);
 			} catch (TaskCanceledException) {
 				break;
 			}
