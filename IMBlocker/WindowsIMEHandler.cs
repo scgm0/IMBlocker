@@ -5,23 +5,22 @@ using Vintagestory.API.Client;
 
 namespace IMBlocker;
 
-public partial class WindowsIMEHandler : IIMEHandler {
+public sealed partial class WindowsIMEHandler : IIMEHandler {
 	private ICoreClientAPI? _api;
 	private IntPtr _hWnd;
-	private bool _imeEnabled = true;
+	private volatile bool _imeEnabled = true;
+	public bool ImeEnabled => _imeEnabled;
 
 	[LibraryImport("imm32.dll")]
 	static private partial IntPtr ImmGetContext(IntPtr hWnd);
 
-	[LibraryImport("imm32.dll")]
-	[return: MarshalAs(UnmanagedType.Bool)]
+	[LibraryImport("imm32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
 	static private partial bool ImmReleaseContext(IntPtr hWnd, IntPtr hIMC);
 
 	[LibraryImport("imm32.dll")]
 	static private partial IntPtr ImmAssociateContext(IntPtr hWnd, IntPtr hIMC);
 
-	[LibraryImport("imm32.dll")]
-	[return: MarshalAs(UnmanagedType.Bool)]
+	[LibraryImport("imm32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
 	static private partial bool ImmDestroyContext(IntPtr hIMC);
 
 	[LibraryImport("imm32.dll")]
@@ -29,40 +28,47 @@ public partial class WindowsIMEHandler : IIMEHandler {
 
 	[LibraryImport("imm32.dll")]
 	[return: MarshalAs(UnmanagedType.Bool)]
-	static private partial bool ImmSetCompositionWindow(IntPtr hIMC, ref COMPOSITIONFORM lpCompForm);
-
-	[LibraryImport("imm32.dll")]
-	[return: MarshalAs(UnmanagedType.Bool)]
-	static private partial bool ImmGetCompositionWindow(IntPtr hIMC, ref COMPOSITIONFORM lpCompForm);
-
-	[StructLayout(LayoutKind.Sequential)]
-	public struct POINT {
-		public int x;
-		public int y;
-	}
-
-	[StructLayout(LayoutKind.Sequential)]
-	public struct RECT {
-		public int left;
-		public int top;
-		public int right;
-		public int bottom;
-	}
-
-	[StructLayout(LayoutKind.Sequential)]
-	public struct COMPOSITIONFORM {
-		public uint dwStyle;
-		public POINT ptCurrentPos;
-		public RECT rcArea;
-	}
-
-	public const uint CFS_POINT = 0x0002;
+	static private partial bool ImmSetConversionStatus(IntPtr himc, int fdwConversion, int fdwSentence);
 
 	public unsafe void Initialize(ICoreClientAPI api) {
 		_api = api;
 		_hWnd = GLFW.GetWin32Window(api.Forms.Window.WindowPtr);
 		if (_hWnd == IntPtr.Zero) {
 			api.Logger.Error("无法获取窗口句柄");
+			return;
+		}
+
+		var hImc = ImmGetContext(_hWnd);
+		if (hImc != IntPtr.Zero) {
+			ImmSetConversionStatus(hImc, IMBlockerModSystem.Config.WindowsPreferredEnglish ? 0 : 1, 0);
+		}
+
+		ImmReleaseContext(_hWnd, hImc);
+	}
+
+	public void SyncState() {
+		var imeEnabled = _imeEnabled;
+		if (_hWnd != IntPtr.Zero) {
+			var hImc = ImmGetContext(_hWnd);
+			if (IMBlockerModSystem.Config.EnableDebugLog) {
+				_api?.Logger.Debug($"[IMBlocker] 输入法上下文句柄 → {hImc} 现输入法状态 → {_imeEnabled}");
+			}
+
+			if (hImc != IntPtr.Zero) {
+				imeEnabled = true;
+				ImmReleaseContext(_hWnd, hImc);
+			} else {
+				imeEnabled = false;
+			}
+		}
+
+		if (imeEnabled == _imeEnabled) {
+			return;
+		}
+
+		_imeEnabled = imeEnabled;
+		if (IMBlockerModSystem.Config.EnableDebugLog) {
+			_api?.Logger.Debug($"[IMBlocker] 输入法状态同步 → {_imeEnabled}");
 		}
 	}
 
@@ -76,8 +82,8 @@ public partial class WindowsIMEHandler : IIMEHandler {
 			if (hImc != IntPtr.Zero) {
 				ImmDestroyContext(hImc);
 			}
+
 			_imeEnabled = true;
-			// UpdateImeWindowPosition(_hWnd, 0, 0);
 		} catch (Exception e) {
 			_api?.Logger.Error(e.Message);
 		}
@@ -90,24 +96,13 @@ public partial class WindowsIMEHandler : IIMEHandler {
 			}
 
 			var hImc = ImmAssociateContext(_hWnd, IntPtr.Zero);
-			ImmDestroyContext(hImc);
+			if (hImc != IntPtr.Zero) {
+				ImmDestroyContext(hImc);
+			}
 
 			_imeEnabled = false;
 		} catch (Exception e) {
 			_api?.Logger.Error(e.Message);
 		}
-	}
-
-	public static void UpdateImeWindowPosition(IntPtr hWnd, int x, int y) {
-		var hImc = ImmGetContext(hWnd);
-		if (hImc != IntPtr.Zero) {
-			var form = new COMPOSITIONFORM();
-			ImmGetCompositionWindow(hImc, ref form);
-			form.dwStyle = CFS_POINT;
-			form.ptCurrentPos = new() { x = x, y = y };
-
-			ImmSetCompositionWindow(hImc, ref form);
-		}
-		ImmReleaseContext(hWnd, hImc);
 	}
 }

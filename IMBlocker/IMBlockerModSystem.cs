@@ -9,20 +9,20 @@ public class IMBlockerModSystem : ModSystem {
 	private readonly Harmony _harmony = new("imblocker");
 	private IIMEHandler? _imeHandler;
 	public static IMEStateManager? StateManager { get; private set; }
+	public static ModConfig Config { get; private set; } = new();
 
 	public override void StartClientSide(ICoreClientAPI api) {
-		ModConfig config;
 		try {
-			config = api.LoadModConfig<ModConfig>("IMBlocker.json") ?? new ModConfig();
-			api.StoreModConfig(config, "IMBlocker.json");
+			Config = api.LoadModConfig<ModConfig>("IMBlocker.json") ?? new ModConfig();
+			api.StoreModConfig(Config, "IMBlocker.json");
 		} catch (Exception e) {
-			config = new();
-			api.StoreModConfig(config, "IMBlocker.json");
+			Config = new();
+			api.StoreModConfig(Config, "IMBlocker.json");
 			api.Logger.Error($"[IMBlocker] 加载配置失败: {e}");
 			return;
 		}
 
-		if (!config.AutoSwitchIME) {
+		if (!Config.AutoSwitchIME) {
 			api.Logger.Notification("[IMBlocker] 由配置禁用");
 			return;
 		}
@@ -38,7 +38,7 @@ public class IMBlockerModSystem : ModSystem {
 
 		_imeHandler.Initialize(api);
 
-		StateManager = new(_imeHandler, api, config);
+		StateManager = new(_imeHandler, api, Config);
 
 		_harmony.PatchAllUncategorized();
 		if (api.ModLoader.IsModEnabled("vsimgui")) {
@@ -49,5 +49,8 @@ public class IMBlockerModSystem : ModSystem {
 		api.Logger.Notification("[IMBlocker] 初始化完成，聚焦文本输入将启用输入法");
 	}
 
-	public override void Dispose() { _harmony.UnpatchAll(); }
+	public override void Dispose() {
+		StateManager?.Dispose();
+		_harmony.UnpatchAll();
+	}
 }

@@ -1,13 +1,17 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Vintagestory.API.Client;
 
 namespace IMBlocker;
 
-public class IMEStateManager {
-	private readonly IIMEHandler _handler;
+public sealed class IMEStateManager : IDisposable {
+	public IIMEHandler Handler { get; }
 	private readonly ICoreClientAPI _api;
 	private readonly ModConfig _config;
 	private int _focusCount = -2;
-	private bool _imeOn;
+	private readonly CancellationTokenSource _cts = new();
+
 
 	public bool ImGuiWantsIme {
 		get;
@@ -26,11 +30,23 @@ public class IMEStateManager {
 	}
 
 	public IMEStateManager(IIMEHandler handler, ICoreClientAPI api, ModConfig config) {
-		_handler = handler;
+		Handler = handler;
 		_api = api;
 		_config = config;
 		handler.DisableIME();
-		_imeOn = false;
+
+		Task.Factory.StartNew(SyncState, _cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+	}
+
+	private async Task SyncState() {
+		while (!_cts.Token.IsCancellationRequested) {
+			Handler.SyncState();
+			try {
+				await Task.Delay(2000, _cts.Token);
+			} catch (TaskCanceledException) {
+				break;
+			}
+		}
 	}
 
 	public void OnTextFocusGained(GuiElementEditableTextBase? guiElementEditableTextBase = null) {
@@ -52,7 +68,7 @@ public class IMEStateManager {
 	}
 
 	public void OnMouseGrabbed() {
-		if (_focusCount == 0) {
+		if (_focusCount < 0) {
 			return;
 		}
 
@@ -65,20 +81,23 @@ public class IMEStateManager {
 		Update();
 	}
 
-	private void Update() {
+	public void Update() {
 		var needOn = _focusCount > 0 || ImGuiWantsIme;
-		if (needOn && !_imeOn) {
-			_handler.EnableIME();
-			_imeOn = true;
+		if (needOn && !Handler.ImeEnabled) {
+			Handler.EnableIME();
 			if (_config.EnableDebugLog) {
 				_api.Logger.Debug("[IMBlocker] 输入法开启");
 			}
-		} else if (!needOn && _imeOn) {
-			_handler.DisableIME();
-			_imeOn = false;
+		} else if (!needOn && Handler.ImeEnabled) {
+			Handler.DisableIME();
 			if (_config.EnableDebugLog) {
 				_api.Logger.Debug("[IMBlocker] IME OFF");
 			}
 		}
+	}
+
+	public void Dispose() {
+		_cts.Cancel();
+		_cts.Dispose();
 	}
 }
